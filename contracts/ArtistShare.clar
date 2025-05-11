@@ -436,3 +436,100 @@
         )
     )
 )
+
+
+
+(define-map revenue-pools
+    uint
+    {
+        pool-name: (string-ascii 64),
+        contributors: (list 10 principal),
+        shares: (list 10 uint),
+        total-revenue: uint,
+        active: bool
+    }
+)
+
+(define-data-var next-pool-id uint u1)
+
+(define-public (create-revenue-pool (pool-name (string-ascii 64)) (contributors (list 10 principal)) (shares (list 10 uint)))
+    (let (
+        (pool-id (var-get next-pool-id))
+    )
+        (begin
+            (asserts! (is-some (map-get? artist-profiles tx-sender)) ERR-NOT-AUTHORIZED)
+            (var-set next-pool-id (+ pool-id u1))
+            (ok (map-set revenue-pools pool-id
+                {
+                    pool-name: pool-name,
+                    contributors: contributors,
+                    shares: shares,
+                    total-revenue: u0,
+                    active: true
+                }
+            ))
+        )
+    )
+)
+
+(define-public (add-revenue-to-pool (pool-id uint) (amount uint))
+    (let (
+        (pool (unwrap! (map-get? revenue-pools pool-id) ERR-NOT-AUTHORIZED))
+    )
+        (begin
+            (asserts! (get active pool) ERR-NOT-AUTHORIZED)
+            (ok (map-set revenue-pools pool-id
+                (merge pool { total-revenue: (+ (get total-revenue pool) amount) })
+            ))
+        )
+    )
+)
+
+
+(define-map time-locked-rewards
+    uint
+    {
+        artist: principal,
+        reward-amount: uint,
+        unlock-height: uint,
+        claimed: bool,
+        recipient: principal
+    }
+)
+
+(define-data-var next-reward-id uint u1)
+
+(define-public (create-time-locked-reward (recipient principal) (amount uint) (lock-period uint))
+    (let (
+        (reward-id (var-get next-reward-id))
+    )
+        (begin
+            (asserts! (is-some (map-get? artist-profiles tx-sender)) ERR-NOT-AUTHORIZED)
+            (var-set next-reward-id (+ reward-id u1))
+            (ok (map-set time-locked-rewards reward-id
+                {
+                    artist: tx-sender,
+                    reward-amount: amount,
+                    unlock-height: (+ stacks-block-height lock-period),
+                    claimed: false,
+                    recipient: recipient
+                }
+            ))
+        )
+    )
+)
+
+(define-public (claim-time-locked-reward (reward-id uint))
+    (let (
+        (reward (unwrap! (map-get? time-locked-rewards reward-id) ERR-NOT-AUTHORIZED))
+    )
+        (begin
+            (asserts! (is-eq tx-sender (get recipient reward)) ERR-NOT-AUTHORIZED)
+            (asserts! (>= stacks-block-height (get unlock-height reward)) ERR-NOT-AUTHORIZED)
+            (asserts! (not (get claimed reward)) ERR-NOT-AUTHORIZED)
+            (ok (map-set time-locked-rewards reward-id
+                (merge reward { claimed: true })
+            ))
+        )
+    )
+)
