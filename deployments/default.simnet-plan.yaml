@@ -60,6 +60,11 @@ plan:
             path: "contracts\\ArtistShare.clar"
             clarity-version: 3
         - emulated-contract-publish:
+            contract-name: ConcertTicketing
+            emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
+            path: "contracts\\ConcertTicketing.clar"
+            clarity-version: 3
+        - emulated-contract-publish:
             contract-name: FanRewards
             emulated-sender: ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM
             path: "contracts\\FanRewards.clar"

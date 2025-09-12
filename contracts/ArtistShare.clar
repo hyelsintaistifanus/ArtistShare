@@ -732,3 +732,202 @@
         )
     )
 )
+
+;; =======================
+;; MUSIC GENRE TRENDING SYSTEM
+;; =======================
+;; Simple feature to track trending music genres based on artist activity and fan engagement
+
+;; Music genre definitions and trending data
+(define-map music-genres
+    uint
+    {
+        name: (string-ascii 30),
+        description: (string-ascii 100),
+        trend-score: uint,
+        artist-count: uint,
+        fan-count: uint,
+        last-activity: uint,
+        weekly-growth: uint
+    }
+)
+
+;; Artist genre associations
+(define-map artist-genres
+    { artist: principal, genre-id: uint }
+    {
+        primary: bool,
+        activity-score: uint,
+        last-update: uint
+    }
+)
+
+;; Fan genre preferences
+(define-map fan-genre-preferences
+    { fan: principal, genre-id: uint }
+    {
+        engagement-level: uint,
+        last-interaction: uint,
+        preference-strength: uint
+    }
+)
+
+;; Weekly trending genres leaderboard
+(define-map weekly-trending
+    { week: uint, year: uint, rank: uint }
+    {
+        genre-id: uint,
+        trend-score: uint,
+        growth-percentage: uint
+    }
+)
+
+(define-data-var next-genre-id uint u1)
+(define-data-var current-week uint u1)
+(define-data-var current-year uint u2024)
+
+;; Register a new music genre
+(define-public (register-music-genre (name (string-ascii 30)) (description (string-ascii 100)))
+    (let (
+        (genre-id (var-get next-genre-id))
+    )
+        (begin
+            (map-set music-genres genre-id
+                {
+                    name: name,
+                    description: description,
+                    trend-score: u0,
+                    artist-count: u0,
+                    fan-count: u0,
+                    last-activity: stacks-block-height,
+                    weekly-growth: u0
+                }
+            )
+            (var-set next-genre-id (+ genre-id u1))
+            (ok genre-id)
+        )
+    )
+)
+
+;; Artist associates with a genre
+(define-public (set-artist-genre (genre-id uint) (is-primary bool))
+    (let (
+        (genre (unwrap! (map-get? music-genres genre-id) ERR-NOT-AUTHORIZED))
+        (artist-profile (unwrap! (map-get? artist-profiles tx-sender) ERR-NOT-AUTHORIZED))
+    )
+        (begin
+            (map-set artist-genres { artist: tx-sender, genre-id: genre-id }
+                {
+                    primary: is-primary,
+                    activity-score: u10,
+                    last-update: stacks-block-height
+                }
+            )
+            (map-set music-genres genre-id
+                (merge genre {
+                    artist-count: (+ (get artist-count genre) u1),
+                    trend-score: (+ (get trend-score genre) u10),
+                    last-activity: stacks-block-height
+                })
+            )
+            (ok true)
+        )
+    )
+)
+
+;; Fan shows interest in a genre
+(define-public (set-fan-genre-preference (genre-id uint) (engagement-level uint))
+    (let (
+        (genre (unwrap! (map-get? music-genres genre-id) ERR-NOT-AUTHORIZED))
+        (existing-pref (map-get? fan-genre-preferences { fan: tx-sender, genre-id: genre-id }))
+    )
+        (begin
+            (asserts! (and (> engagement-level u0) (<= engagement-level u10)) ERR-INVALID-AMOUNT)
+            (map-set fan-genre-preferences { fan: tx-sender, genre-id: genre-id }
+                {
+                    engagement-level: engagement-level,
+                    last-interaction: stacks-block-height,
+                    preference-strength: (if (is-some existing-pref) 
+                        (+ (get preference-strength (unwrap-panic existing-pref)) u1) u1)
+                }
+            )
+            (if (is-none existing-pref)
+                (map-set music-genres genre-id
+                    (merge genre {
+                        fan-count: (+ (get fan-count genre) u1),
+                        trend-score: (+ (get trend-score genre) engagement-level),
+                        last-activity: stacks-block-height
+                    })
+                )
+                (map-set music-genres genre-id
+                    (merge genre {
+                        trend-score: (+ (get trend-score genre) engagement-level),
+                        last-activity: stacks-block-height
+                    })
+                )
+            )
+            (ok true)
+        )
+    )
+)
+
+;; Update weekly trending based on current scores
+(define-public (update-weekly-trending (week uint) (year uint))
+    (begin
+        (asserts! (and (> week u0) (<= week u52)) ERR-INVALID-AMOUNT)
+        (asserts! (> year u2020) ERR-INVALID-AMOUNT)
+        (var-set current-week week)
+        (var-set current-year year)
+        ;; In a real implementation, this would calculate top genres and update rankings
+        ;; For simplicity, we'll just allow manual updates here
+        (ok true)
+    )
+)
+
+;; Set a genre's ranking for the week
+(define-public (set-genre-weekly-rank (genre-id uint) (rank uint) (growth-percentage uint))
+    (let (
+        (genre (unwrap! (map-get? music-genres genre-id) ERR-NOT-AUTHORIZED))
+        (week (var-get current-week))
+        (year (var-get current-year))
+    )
+        (begin
+            (asserts! (and (> rank u0) (<= rank u10)) ERR-INVALID-AMOUNT)
+            (map-set weekly-trending { week: week, year: year, rank: rank }
+                {
+                    genre-id: genre-id,
+                    trend-score: (get trend-score genre),
+                    growth-percentage: growth-percentage
+                }
+            )
+            (ok true)
+        )
+    )
+)
+
+;; Read-only functions for the trending system
+(define-read-only (get-music-genre (genre-id uint))
+    (map-get? music-genres genre-id)
+)
+
+(define-read-only (get-artist-genre-info (artist principal) (genre-id uint))
+    (map-get? artist-genres { artist: artist, genre-id: genre-id })
+)
+
+(define-read-only (get-fan-genre-preference (fan principal) (genre-id uint))
+    (map-get? fan-genre-preferences { fan: fan, genre-id: genre-id })
+)
+
+(define-read-only (get-weekly-trending-genre (week uint) (year uint) (rank uint))
+    (map-get? weekly-trending { week: week, year: year, rank: rank })
+)
+
+(define-read-only (get-top-trending-genres (week uint) (year uint))
+    (let (
+        (rank-1 (map-get? weekly-trending { week: week, year: year, rank: u1 }))
+        (rank-2 (map-get? weekly-trending { week: week, year: year, rank: u2 }))
+        (rank-3 (map-get? weekly-trending { week: week, year: year, rank: u3 }))
+    )
+        { rank-1: rank-1, rank-2: rank-2, rank-3: rank-3 }
+    )
+)
